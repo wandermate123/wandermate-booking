@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Header from "@/components/Header";
-import { isVaranasiFamily, PACKAGES } from "@/lib/catalog";
-import { formatINR, getGroupQuote } from "@/lib/pricing";
+import { isTestPackage, isVaranasiFamily, PACKAGES } from "@/lib/catalog";
+import { formatINR, getGroupQuote, TEST_PACKAGE_PRICE } from "@/lib/pricing";
 
 export const metadata = { title: "Choose a Package | WanderMate" };
 
@@ -60,11 +60,13 @@ export default function BookPickerPage() {
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {pkg.variants.map((v) => {
-                    const groupQuote = isVaranasiFamily(pkg.family)
-                      ? getGroupQuote(pkg.family, v.id, 2)
-                      : v.adultPrice
-                        ? v.adultPrice * 2
-                        : null;
+                    const groupQuote = isTestPackage(pkg.family)
+                      ? TEST_PACKAGE_PRICE
+                      : isVaranasiFamily(pkg.family)
+                        ? getGroupQuote(pkg.family, v.id, 2)
+                        : v.adultPrice
+                          ? v.adultPrice * 2
+                          : null;
 
                     return (
                       <Link
@@ -76,7 +78,9 @@ export default function BookPickerPage() {
                         <span className="block">{v.label}</span>
                         {groupQuote != null && (
                           <span className="block text-[10px] font-normal mt-0.5 opacity-80">
-                            {formatINR(groupQuote)} / 2 adults
+                            {isTestPackage(pkg.family)
+                            ? formatINR(TEST_PACKAGE_PRICE)
+                            : `${formatINR(groupQuote)} / 2 adults`}
                           </span>
                         )}
                       </Link>

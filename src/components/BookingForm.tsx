@@ -3,12 +3,13 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { Package, Variant } from "@/lib/catalog";
-import { isVaranasiFamily, MAX_PAX } from "@/lib/catalog";
+import { isTestPackage, isVaranasiFamily, MAX_PAX } from "@/lib/catalog";
 import {
   calculatePrice,
   formatINR,
   getAddOnDisplayPrice,
   getAddOnsForFamily,
+  TEST_PACKAGE_PRICE,
 } from "@/lib/pricing";
 import { seasonFromDate } from "@/lib/varanasi-pricing";
 import type { PickupDropType } from "@/lib/varanasi-pricing";
@@ -45,6 +46,7 @@ function today() {
 
 export default function BookingForm({ pkg, initialVariant }: Props) {
   const router = useRouter();
+  const isTest = isTestPackage(pkg.family);
   const isVaranasi = isVaranasiFamily(pkg.family);
   const isPremium = pkg.family === "varanasi-premium";
   const packageAddOns = getAddOnsForFamily(pkg.family);
@@ -191,8 +193,8 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
           ))}
         </div>
         <p className="text-xs text-[#e86228] font-semibold mt-2">
-          {pricing?.isTestPrice
-            ? `Test mode — flat ${formatINR(pricing.total)} per booking`
+          {isTest
+            ? `Flat test price: ${formatINR(TEST_PACKAGE_PRICE)}`
             : isVaranasi
               ? pricing
                 ? `Group price for ${form.adults} adult${form.adults === 1 ? "" : "s"}: ${formatINR(pricing.total)}`

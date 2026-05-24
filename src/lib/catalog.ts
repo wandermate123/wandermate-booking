@@ -32,6 +32,28 @@ export type AddOn = {
 
 export const PACKAGES: Package[] = [
   {
+    family: "test-package",
+    name: "Test Package",
+    subtitle: "Live payment test only",
+    tagline: "Flat ₹10 — use this to test booking, payment, and confirmation email on the live site.",
+    includes: [
+      "Not a real tour — payment flow testing only",
+      "Triggers the same booking + Razorpay + email flow",
+    ],
+    highlights: [
+      "₹10 flat total",
+      "Same checkout as real packages",
+      "Remove from catalog before public launch",
+    ],
+    variants: [{ id: "test", label: "Test booking", nights: 0, adultPrice: 10 }],
+    faqs: [
+      {
+        q: "Is this a real tour?",
+        a: "No. This package exists only to test payments and confirmation emails. Do not book unless you are testing the system.",
+      },
+    ],
+  },
+  {
     family: "spiritual-triangle",
     name: "The Spiritual Triangle",
     subtitle: "Kashi · Ayodhya · Prayagraj",
@@ -300,6 +322,10 @@ export function getPackage(family: string): Package | undefined {
 
 export function getVariant(family: string, variantId: string): Variant | undefined {
   return getPackage(family)?.variants.find((v) => v.id === variantId);
+}
+
+export function isTestPackage(family: string): boolean {
+  return family === "test-package";
 }
 
 export function isVaranasiFamily(family: string): boolean {
