@@ -3,10 +3,15 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { Package, Variant } from "@/lib/catalog";
-import { ADD_ONS, MAX_PAX, PACKAGES } from "@/lib/catalog";
-import { calculatePrice, formatINR } from "@/lib/pricing";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { isVaranasiFamily, MAX_PAX } from "@/lib/catalog";
+import {
+  calculatePrice,
+  formatINR,
+  getAddOnDisplayPrice,
+  getAddOnsForFamily,
+} from "@/lib/pricing";
+import { seasonFromDate } from "@/lib/varanasi-pricing";
+import type { PickupDropType } from "@/lib/varanasi-pricing";
 
 type Props = {
   pkg: Package;
@@ -19,13 +24,13 @@ type FormState = {
   adults: number;
   children: number;
   addOns: string[];
+  arrivalTransfer: PickupDropType | "";
+  departureTransfer: PickupDropType | "";
   name: string;
   email: string;
   phone: string;
   specialRequests: string;
 };
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function addDays(dateStr: string, days: number): string {
   if (!dateStr) return "";
@@ -38,10 +43,11 @@ function today() {
   return new Date().toISOString().split("T")[0];
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export default function BookingForm({ pkg, initialVariant }: Props) {
   const router = useRouter();
+  const isVaranasi = isVaranasiFamily(pkg.family);
+  const isPremium = pkg.family === "varanasi-premium";
+  const packageAddOns = getAddOnsForFamily(pkg.family);
 
   const [form, setForm] = useState<FormState>({
     variantId: initialVariant.id,
@@ -49,6 +55,8 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
     adults: 2,
     children: 0,
     addOns: [],
+    arrivalTransfer: "",
+    departureTransfer: "",
     name: "",
     email: "",
     phone: "",
@@ -59,18 +67,28 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const variant = pkg.variants.find((v) => v.id === form.variantId) ?? initialVariant;
+  const pickupDrop =
+    isPremium && (form.arrivalTransfer || form.departureTransfer)
+      ? {
+          arrival: form.arrivalTransfer || null,
+          departure: form.departureTransfer || null,
+        }
+      : undefined;
+
   const pricing = calculatePrice({
     family: pkg.family,
     variantId: form.variantId,
     adults: form.adults,
     children: form.children,
     addOnIds: form.addOns,
+    startDate: form.startDate || undefined,
+    pickupDrop,
   });
 
   const endDate = form.startDate ? addDays(form.startDate, variant.nights) : "";
   const totalPax = form.adults + form.children;
-
-  // ─── Field helpers ─────────────────────────────────────────────────────────
+  const season =
+    isPremium && form.startDate ? seasonFromDate(form.startDate) : null;
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -81,8 +99,6 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
       form.addOns.includes(id) ? form.addOns.filter((a) => a !== id) : [...form.addOns, id]
     );
 
-  // ─── Submit → create booking → open Razorpay ───────────────────────────────
-
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -91,7 +107,6 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
       setLoading(true);
 
       try {
-        // 1. Create booking record (status: PENDING)
         const bookingRes = await fetch("/api/bookings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -102,6 +117,7 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
             adults: form.adults,
             children: form.children,
             addOnIds: form.addOns,
+            pickupDrop,
             name: form.name,
             email: form.email,
             phone: form.phone,
@@ -112,7 +128,6 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
         const bookingData = await bookingRes.json();
         if (!bookingRes.ok) throw new Error(bookingData.error ?? "Failed to create booking");
 
-        // 2. Create Razorpay order
         const orderRes = await fetch("/api/razorpay/order", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -122,7 +137,6 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
         const orderData = await orderRes.json();
         if (!orderRes.ok) throw new Error(orderData.error ?? "Failed to create payment order");
 
-        // 3. Open Razorpay checkout
         const Razorpay = (await loadRazorpay()) as any;
         const rzp = new Razorpay({
           key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
@@ -138,7 +152,6 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
             razorpay_order_id: string;
             razorpay_signature: string;
           }) => {
-            // Webhook handles status update — redirect to thank you
             router.push(
               `/book/thank-you?payment_id=${response.razorpay_payment_id}&booking=${bookingData.id}`
             );
@@ -154,15 +167,11 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
         setLoading(false);
       }
     },
-    [form, pkg, variant, pricing, router]
+    [form, pkg, variant, pricing, router, pickupDrop]
   );
-
-  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8" noValidate>
-
-      {/* Duration pills */}
       <section>
         <label className="form-label">Duration</label>
         <div className="flex flex-wrap gap-2 mt-1">
@@ -182,14 +191,21 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
           ))}
         </div>
         <p className="text-xs text-[#e86228] font-semibold mt-2">
-          ₹{variant.adultPrice.toLocaleString("en-IN")} / adult
+          {isVaranasi
+            ? pricing
+              ? `Group price for ${form.adults} adult${form.adults === 1 ? "" : "s"}: ${formatINR(pricing.total)}`
+              : "Group price based on guests, nights & travel dates"
+            : variant.adultPrice
+              ? `₹${variant.adultPrice.toLocaleString("en-IN")} / adult`
+              : ""}
         </p>
       </section>
 
-      {/* Dates */}
       <section className="grid grid-cols-2 gap-4">
         <div>
-          <label className="form-label" htmlFor="startDate">Start Date</label>
+          <label className="form-label" htmlFor="startDate">
+            Start Date
+          </label>
           <input
             id="startDate"
             type="date"
@@ -199,6 +215,11 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
             onChange={(e) => set("startDate", e.target.value)}
             className="form-input"
           />
+          {season && (
+            <p className="text-xs text-gray-500 mt-1">
+              {season === "peak" ? "Peak season (Oct–Mar)" : "Off-season (Apr–Sep)"} rates apply
+            </p>
+          )}
         </div>
         <div>
           <label className="form-label">End Date</label>
@@ -212,7 +233,6 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
         </div>
       </section>
 
-      {/* Guests */}
       <section>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -223,8 +243,7 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
               <button
                 type="button"
                 onClick={() => set("adults", Math.max(1, form.adults - 1))}
-                className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center
-                           text-lg font-medium hover:border-[#0f2744] transition-colors"
+                className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-lg font-medium hover:border-[#0f2744] transition-colors"
               >
                 −
               </button>
@@ -236,8 +255,7 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
                 onClick={() =>
                   set("adults", totalPax < MAX_PAX ? form.adults + 1 : form.adults)
                 }
-                className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center
-                           text-lg font-medium hover:border-[#0f2744] transition-colors"
+                className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-lg font-medium hover:border-[#0f2744] transition-colors"
               >
                 +
               </button>
@@ -246,14 +264,16 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
 
           <div>
             <label className="form-label" htmlFor="children">
-              Children <span className="font-normal normal-case">(age 5–11, 50% off)</span>
+              Children{" "}
+              <span className="font-normal normal-case">
+                {isVaranasi ? "(under 10, free stay)" : "(age 5–11, 50% off)"}
+              </span>
             </label>
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => set("children", Math.max(0, form.children - 1))}
-                className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center
-                           text-lg font-medium hover:border-[#0f2744] transition-colors"
+                className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-lg font-medium hover:border-[#0f2744] transition-colors"
               >
                 −
               </button>
@@ -265,8 +285,7 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
                 onClick={() =>
                   set("children", totalPax < MAX_PAX ? form.children + 1 : form.children)
                 }
-                className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center
-                           text-lg font-medium hover:border-[#0f2744] transition-colors"
+                className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-lg font-medium hover:border-[#0f2744] transition-colors"
               >
                 +
               </button>
@@ -280,44 +299,91 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
         )}
       </section>
 
-      {/* Add-ons */}
-      <section>
-        <label className="form-label">Add-ons (optional)</label>
-        <div className="space-y-2 mt-1">
-          {ADD_ONS.map((ao) => (
-            <label
-              key={ao.id}
-              className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${
-                form.addOns.includes(ao.id)
-                  ? "border-[#e86228] bg-[#fdf6ec]"
-                  : "border-gray-100 hover:border-gray-200 bg-white"
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={form.addOns.includes(ao.id)}
-                onChange={() => toggleAddOn(ao.id)}
-                className="mt-0.5 accent-[#e86228]"
-              />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-[#0f2744]">{ao.name}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{ao.description}</p>
-              </div>
-              <span className="text-sm font-semibold text-[#e86228] shrink-0">
-                +{formatINR(ao.price)}
-              </span>
-            </label>
-          ))}
-        </div>
-      </section>
+      {isPremium && (
+        <section>
+          <label className="form-label">Pickup &amp; Drop (optional)</label>
+          <p className="text-xs text-gray-500 mb-3">
+            Railway ₹600/way · Airport ₹1,100/way (per vehicle, before markup)
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label" htmlFor="arrivalTransfer">
+                Arrival
+              </label>
+              <select
+                id="arrivalTransfer"
+                value={form.arrivalTransfer}
+                onChange={(e) =>
+                  set("arrivalTransfer", e.target.value as PickupDropType | "")
+                }
+                className="form-input"
+              >
+                <option value="">Not needed</option>
+                <option value="railway">Railway station</option>
+                <option value="airport">Airport</option>
+              </select>
+            </div>
+            <div>
+              <label className="form-label" htmlFor="departureTransfer">
+                Departure
+              </label>
+              <select
+                id="departureTransfer"
+                value={form.departureTransfer}
+                onChange={(e) =>
+                  set("departureTransfer", e.target.value as PickupDropType | "")
+                }
+                className="form-input"
+              >
+                <option value="">Not needed</option>
+                <option value="railway">Railway station</option>
+                <option value="airport">Airport</option>
+              </select>
+            </div>
+          </div>
+        </section>
+      )}
 
-      {/* Guest details */}
+      {packageAddOns.length > 0 && (
+        <section>
+          <label className="form-label">Add-ons (optional)</label>
+          <div className="space-y-2 mt-1">
+            {packageAddOns.map((ao) => (
+              <label
+                key={ao.id}
+                className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${
+                  form.addOns.includes(ao.id)
+                    ? "border-[#e86228] bg-[#fdf6ec]"
+                    : "border-gray-100 hover:border-gray-200 bg-white"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={form.addOns.includes(ao.id)}
+                  onChange={() => toggleAddOn(ao.id)}
+                  className="mt-0.5 accent-[#e86228]"
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-[#0f2744]">{ao.name}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{ao.description}</p>
+                </div>
+                <span className="text-sm font-semibold text-[#e86228] shrink-0">
+                  +{formatINR(getAddOnDisplayPrice(pkg.family, ao.id, form.adults))}
+                </span>
+              </label>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="space-y-4">
         <h3 className="font-serif text-lg font-semibold text-[#0f2744]">Your Details</h3>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label" htmlFor="name">Full Name *</label>
+            <label className="form-label" htmlFor="name">
+              Full Name *
+            </label>
             <input
               id="name"
               required
@@ -329,7 +395,9 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
             />
           </div>
           <div>
-            <label className="form-label" htmlFor="phone">Phone *</label>
+            <label className="form-label" htmlFor="phone">
+              Phone *
+            </label>
             <input
               id="phone"
               required
@@ -343,7 +411,9 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
         </div>
 
         <div>
-          <label className="form-label" htmlFor="email">Email Address *</label>
+          <label className="form-label" htmlFor="email">
+            Email Address *
+          </label>
           <input
             id="email"
             required
@@ -374,25 +444,41 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
         </div>
       </section>
 
-      {/* Price summary */}
       {pricing && (
         <section className="bg-[#0f2744] rounded-2xl p-5 text-white">
           <h3 className="font-serif text-lg font-semibold text-[#c9a84c] mb-4">
             Price Summary
           </h3>
           <div className="space-y-2 text-sm">
-            <Row label={`Adults (${form.adults} × ${formatINR(variant.adultPrice)})`} value={formatINR(pricing.adultTotal)} />
-            {form.children > 0 && (
-              <Row
-                label={`Children (${form.children} × ${formatINR(Math.round(variant.adultPrice * 0.5))})`}
-                value={formatINR(pricing.childTotal)}
-              />
+            {pricing.usesMarkup ? (
+              <>
+                <Row
+                  label={`${pkg.name} — ${variant.label} (${form.adults} adult${form.adults === 1 ? "" : "s"})`}
+                  value={formatINR(pricing.adultTotal)}
+                />
+                {pricing.addOnTotal > 0 && (
+                  <Row label="Add-ons" value={formatINR(pricing.addOnTotal)} />
+                )}
+              </>
+            ) : (
+              <>
+                <Row
+                  label={`Adults (${form.adults} × ${formatINR(variant.adultPrice ?? 0)})`}
+                  value={formatINR(pricing.adultTotal)}
+                />
+                {form.children > 0 && (
+                  <Row
+                    label={`Children (${form.children} × ${formatINR(Math.round((variant.adultPrice ?? 0) * 0.5))})`}
+                    value={formatINR(pricing.childTotal)}
+                  />
+                )}
+                {pricing.addOnTotal > 0 && (
+                  <Row label="Add-ons" value={formatINR(pricing.addOnTotal)} />
+                )}
+                <Row label="Subtotal" value={formatINR(pricing.subtotal)} />
+                <Row label="GST (5%)" value={formatINR(pricing.taxAmount)} muted />
+              </>
             )}
-            {pricing.addOnTotal > 0 && (
-              <Row label="Add-ons" value={formatINR(pricing.addOnTotal)} />
-            )}
-            <Row label="Subtotal" value={formatINR(pricing.subtotal)} />
-            <Row label="GST (5%)" value={formatINR(pricing.taxAmount)} muted />
             <div className="border-t border-white/20 pt-3 mt-1 flex justify-between items-baseline">
               <span className="font-semibold">Total</span>
               <span className="font-serif text-2xl font-bold text-[#e86228]">
@@ -403,23 +489,16 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
         </section>
       )}
 
-      {/* Error */}
       {error && (
         <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-4 py-3">
           {error}
         </p>
       )}
 
-      {/* Submit */}
       <button
         type="submit"
         disabled={
-          loading ||
-          !form.startDate ||
-          !form.name ||
-          !form.phone ||
-          !form.email ||
-          !pricing
+          loading || !form.startDate || !form.name || !form.phone || !form.email || !pricing
         }
         className="btn-primary w-full py-4 text-base"
       >
@@ -427,31 +506,23 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
       </button>
 
       <p className="text-center text-xs text-gray-400">
-        🔒 Secure payment via Razorpay · UPI · Cards · Net Banking · Wallets
+        Secure payment via Razorpay · UPI · Cards · Net Banking · Wallets
       </p>
 
-      {/* WhatsApp fallback */}
       <div className="text-center pt-2">
         <p className="text-xs text-gray-500 mb-2">Prefer to book over the phone?</p>
         <a
           href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_BOOKING_NUMBER}?text=Hi!%20I%20want%20to%20book%20the%20${encodeURIComponent(pkg.name)}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 text-[#25D366] font-semibold text-sm
-                     hover:underline"
+          className="inline-flex items-center gap-2 text-[#25D366] font-semibold text-sm hover:underline"
         >
-          <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" aria-hidden="true">
-            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-            <path d="M12 0C5.373 0 0 5.373 0 12c0 2.128.558 4.122 1.532 5.853L0 24l6.302-1.508A11.954 11.954 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.891 0-3.665-.513-5.188-1.407l-.372-.221-3.865.924.988-3.744-.242-.386A9.961 9.961 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
-          </svg>
           Book via WhatsApp instead
         </a>
       </div>
     </form>
   );
 }
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function Row({
   label,
@@ -469,8 +540,6 @@ function Row({
     </div>
   );
 }
-
-// ─── Razorpay script loader ───────────────────────────────────────────────────
 
 function loadRazorpay(): Promise<unknown> {
   return new Promise((resolve, reject) => {

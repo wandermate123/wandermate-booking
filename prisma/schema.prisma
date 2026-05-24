@@ -14,7 +14,7 @@ model Booking {
   updatedAt DateTime @updatedAt
 
   // Package
-  family    String  // "spiritual-triangle" | "varanasi"
+  family    String  // "spiritual-triangle" | "varanasi-classic" | "varanasi-premium"
   variant   String  // "3n4d", "4n5d" etc.
   startDate DateTime
   endDate   DateTime

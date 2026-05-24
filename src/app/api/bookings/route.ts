@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
       adults,
       children = 0,
       addOnIds = [],
+      pickupDrop,
       name,
       email,
       phone,
@@ -39,7 +40,15 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Pricing ────────────────────────────────────────────────────────────
-    const pricing = calculatePrice({ family, variantId, adults, children, addOnIds });
+    const pricing = calculatePrice({
+      family,
+      variantId,
+      adults,
+      children,
+      addOnIds,
+      startDate,
+      pickupDrop,
+    });
     if (!pricing) {
       return NextResponse.json({ error: "Could not calculate price" }, { status: 500 });
     }

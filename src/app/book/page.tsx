@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Header from "@/components/Header";
-import { PACKAGES } from "@/lib/catalog";
+import { isVaranasiFamily, PACKAGES } from "@/lib/catalog";
+import { formatINR, getGroupQuote } from "@/lib/pricing";
 
 export const metadata = { title: "Choose a Package | WanderMate" };
 
@@ -24,7 +25,7 @@ export default function BookPickerPage() {
       </section>
 
       {/* Package cards */}
-      <section className="max-w-4xl mx-auto px-4 py-14 grid md:grid-cols-2 gap-8">
+      <section className="max-w-6xl mx-auto px-4 py-14 grid md:grid-cols-2 lg:grid-cols-3 gap-8">
         {PACKAGES.map((pkg) => (
           <div
             key={pkg.family}
@@ -58,16 +59,29 @@ export default function BookPickerPage() {
                   Select duration
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {pkg.variants.map((v) => (
-                    <Link
-                      key={v.id}
-                      href={`/book/${pkg.family}/${v.id}`}
-                      className="border border-[#0f2744] text-[#0f2744] text-xs font-semibold px-3.5 py-2 rounded-lg
-                                 hover:bg-[#0f2744] hover:text-white transition-colors duration-150"
-                    >
-                      {v.label}
-                    </Link>
-                  ))}
+                  {pkg.variants.map((v) => {
+                    const groupQuote = isVaranasiFamily(pkg.family)
+                      ? getGroupQuote(pkg.family, v.id, 2)
+                      : v.adultPrice
+                        ? v.adultPrice * 2
+                        : null;
+
+                    return (
+                      <Link
+                        key={v.id}
+                        href={`/book/${pkg.family}/${v.id}`}
+                        className="border border-[#0f2744] text-[#0f2744] text-xs font-semibold px-3.5 py-2 rounded-lg
+                                   hover:bg-[#0f2744] hover:text-white transition-colors duration-150"
+                      >
+                        <span className="block">{v.label}</span>
+                        {groupQuote != null && (
+                          <span className="block text-[10px] font-normal mt-0.5 opacity-80">
+                            {formatINR(groupQuote)} / 2 adults
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
             </div>
