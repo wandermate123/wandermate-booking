@@ -11,10 +11,11 @@ type Params = { family: string; variant: string };
 export async function generateMetadata({
   params,
 }: {
-  params: Params;
+  params: Promise<Params>;
 }): Promise<Metadata> {
-  const pkg     = getPackage(params.family);
-  const variant = getVariant(params.family, params.variant);
+  const { family, variant: variantId } = await params;
+  const pkg     = getPackage(family);
+  const variant = getVariant(family, variantId);
   if (!pkg || !variant) return {};
   return {
     title: `Book ${pkg.name} — ${variant.label} | WanderMate`,
@@ -22,9 +23,10 @@ export async function generateMetadata({
   };
 }
 
-export default function BookingPage({ params }: { params: Params }) {
-  const pkg     = getPackage(params.family);
-  const variant = getVariant(params.family, params.variant);
+export default async function BookingPage({ params }: { params: Promise<Params> }) {
+  const { family, variant: variantId } = await params;
+  const pkg     = getPackage(family);
+  const variant = getVariant(family, variantId);
 
   if (!pkg || !variant) notFound();
 
