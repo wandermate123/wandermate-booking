@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Booking {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Package
+  family    String  // "spiritual-triangle" | "varanasi"
+  variant   String  // "3n4d", "4n5d" etc.
+  startDate DateTime
+  endDate   DateTime
+
+  // Guests
+  adults   Int
+  children Int     @default(0)
+  addOns   String[] // add-on IDs
+
+  // Guest info
+  name            String
+  email           String
+  phone           String
+  specialRequests String? @db.VarChar(2000)
+
+  // Pricing (all in ₹ rupees, stored as integers)
+  adultTotal  Int
+  childTotal  Int
+  addOnTotal  Int
+  subtotal    Int
+  taxAmount   Int
+  totalAmount Int
+
+  // Payment
+  status            BookingStatus @default(PENDING)
+  razorpayOrderId   String?       @unique
+  razorpayPaymentId String?       @unique
+  razorpaySignature String?
+
+  @@map("bookings")
+}
+
+enum BookingStatus {
+  PENDING
+  PAID
+  CANCELLED
+  REFUNDED
+}
