@@ -3,11 +3,13 @@ import Header from "@/components/Header";
 
 export const metadata = { title: "Booking Confirmed | WanderMate" };
 
-export default function ThankYouPage({
+export default async function ThankYouPage({
   searchParams,
 }: {
-  searchParams: { payment_id?: string; booking?: string };
+  searchParams: Promise<{ payment_id?: string; booking?: string }>;
 }) {
+  const resolvedSearchParams = await searchParams;
+
   return (
     <>
       <Header />
@@ -22,16 +24,16 @@ export default function ThankYouPage({
             confirm your itinerary details.
           </p>
 
-          {searchParams.payment_id && (
+          {resolvedSearchParams.payment_id && (
             <div className="bg-[#fdf6ec] rounded-xl border border-[#e86228]/20 p-4 mb-6 inline-block text-left w-full">
               <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Payment Reference</p>
-              <p className="font-mono font-semibold text-[#0f2744] text-sm">{searchParams.payment_id}</p>
+              <p className="font-mono font-semibold text-[#0f2744] text-sm">{resolvedSearchParams.payment_id}</p>
             </div>
           )}
 
           <div className="flex flex-col gap-3">
             <a
-              href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_BOOKING_NUMBER}?text=Hi!%20I%20just%20completed%20my%20booking.%20Payment%20ID%3A%20${searchParams.payment_id}`}
+              href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_BOOKING_NUMBER}?text=Hi!%20I%20just%20completed%20my%20booking.%20Payment%20ID%3A%20${resolvedSearchParams.payment_id}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#1cb858]
