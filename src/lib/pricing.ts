@@ -39,7 +39,33 @@ export type PricingBreakdown = {
   perAdult: number;
   lineItems?: PricingLineItem[];
   usesMarkup?: boolean;
+  isTestPrice?: boolean;
 };
+
+function getTestBookingPrice(): number | null {
+  const raw =
+    process.env.NEXT_PUBLIC_TEST_BOOKING_PRICE ?? process.env.TEST_BOOKING_PRICE;
+  if (!raw) return null;
+  const price = parseInt(raw, 10);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+function testPricingBreakdown(total: number): PricingBreakdown {
+  return {
+    adultTotal: total,
+    childTotal: 0,
+    addOnTotal: 0,
+    subtotal: total,
+    taxAmount: 0,
+    total,
+    perAdult: total,
+    isTestPrice: true,
+  };
+}
+
+export function isTestPricingEnabled(): boolean {
+  return getTestBookingPrice() != null;
+}
 
 export function getAddOnsForFamily(family: string): AddOn[] {
   const plan = varanasiPlanFromFamily(family);
@@ -57,6 +83,7 @@ export function getAddOnDisplayPrice(
   addOnId: string,
   adults = 2
 ): number {
+  if (getTestBookingPrice() != null) return 0;
   const plan = varanasiPlanFromFamily(family);
   if (plan) {
     return calculateAddOnPrice(plan, addOnId, Math.max(adults, 1));
@@ -68,6 +95,9 @@ export function getAddOnDisplayPrice(
 export function calculatePrice(input: PricingInput): PricingBreakdown | null {
   const variant = getVariant(input.family, input.variantId);
   if (!variant) return null;
+
+  const testPrice = getTestBookingPrice();
+  if (testPrice != null) return testPricingBreakdown(testPrice);
 
   if (isVaranasiFamily(input.family)) {
     const plan = varanasiPlanFromFamily(input.family);

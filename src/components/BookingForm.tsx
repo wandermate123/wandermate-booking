@@ -191,13 +191,15 @@ export default function BookingForm({ pkg, initialVariant }: Props) {
           ))}
         </div>
         <p className="text-xs text-[#e86228] font-semibold mt-2">
-          {isVaranasi
-            ? pricing
-              ? `Group price for ${form.adults} adult${form.adults === 1 ? "" : "s"}: ${formatINR(pricing.total)}`
-              : "Group price based on guests, nights & travel dates"
-            : variant.adultPrice
-              ? `₹${variant.adultPrice.toLocaleString("en-IN")} / adult`
-              : ""}
+          {pricing?.isTestPrice
+            ? `Test mode — flat ${formatINR(pricing.total)} per booking`
+            : isVaranasi
+              ? pricing
+                ? `Group price for ${form.adults} adult${form.adults === 1 ? "" : "s"}: ${formatINR(pricing.total)}`
+                : "Group price based on guests, nights & travel dates"
+              : variant.adultPrice
+                ? `₹${variant.adultPrice.toLocaleString("en-IN")} / adult`
+                : ""}
         </p>
       </section>
 
