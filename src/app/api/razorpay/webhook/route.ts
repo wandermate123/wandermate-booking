@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/db";
+import { sendBookingConfirmationEmail } from "@/lib/booking-email";
 
 export const maxDuration = 10;
 
@@ -10,7 +11,6 @@ export async function POST(req: NextRequest) {
     const signature = req.headers.get("x-razorpay-signature") ?? "";
     const secret    = process.env.RAZORPAY_WEBHOOK_SECRET!;
 
-    // ── Verify signature ───────────────────────────────────────────────────
     const expected = crypto
       .createHmac("sha256", secret)
       .update(body)
@@ -28,21 +28,42 @@ export async function POST(req: NextRequest) {
 
     const event = JSON.parse(body);
 
-    // ── Handle payment.captured ────────────────────────────────────────────
     if (event.event === "payment.captured") {
       const payment = event.payload.payment.entity;
 
-      await prisma.booking.updateMany({
-        where: {
-          razorpayOrderId: payment.order_id,
-          status:          "PENDING",
-        },
-        data: {
-          status:             "PAID",
-          razorpayPaymentId:  payment.id,
-          razorpaySignature:  signature,
-        },
+      const booking = await prisma.booking.findFirst({
+        where: { razorpayOrderId: payment.order_id },
       });
+
+      if (!booking) {
+        console.warn("[webhook] No booking for order", payment.order_id);
+        return NextResponse.json({ received: true });
+      }
+
+      if (booking.status === "PENDING") {
+        await prisma.booking.update({
+          where: { id: booking.id },
+          data: {
+            status:            "PAID",
+            razorpayPaymentId: payment.id,
+            razorpaySignature: signature,
+          },
+        });
+      }
+
+      if (!booking.confirmationEmailSentAt) {
+        const sent = await sendBookingConfirmationEmail(
+          { ...booking, status: "PAID", razorpayPaymentId: payment.id },
+          payment.id
+        );
+
+        if (sent) {
+          await prisma.booking.update({
+            where: { id: booking.id },
+            data:  { confirmationEmailSentAt: new Date() },
+          });
+        }
+      }
 
       console.log(`[webhook] Booking paid — order ${payment.order_id}, payment ${payment.id}`);
     }

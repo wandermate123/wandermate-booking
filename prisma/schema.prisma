@@ -44,6 +44,9 @@ model Booking {
   razorpayPaymentId String?       @unique
   razorpaySignature String?
 
+  // Notifications
+  confirmationEmailSentAt DateTime?
+
   @@map("bookings")
 }
 
