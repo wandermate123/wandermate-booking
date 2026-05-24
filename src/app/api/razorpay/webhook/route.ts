@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/db";
 
+export const maxDuration = 10;
+
 export async function POST(req: NextRequest) {
   try {
     const body      = await req.text();

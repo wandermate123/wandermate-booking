@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "src/app/api/razorpay/webhook/route.ts": {
-      "maxDuration": 10
-    }
-  }
-}
